@@ -207,7 +207,7 @@ describe('system installer transactions', () => {
     const exitCode = await runCli(['setup', ...SYSTEM_ARGS, '--password-stdin'], new FakeCliIo(false, [], [], PASSWORD), host)
 
     expect(exitCode).toBe(6)
-    expect(host.commands.some(command => command.args.includes('add') && command.args.some(argument => /^dsh-auth@\d+\.\d+\.\d+$/u.test(argument)))).toBe(true)
+    expect(host.commands.some(command => command.args.includes('add') && command.args.includes(`dsh-auth@${PACKAGE_VERSION}`))).toBe(true)
     expect(host.commands.some(command => command.args.includes('remove') && command.args.includes('dsh-auth'))).toBe(true)
     expect(host.readFile('/root/.dsh/profiles/web/package.json')).not.toContain('dsh-auth"')
   }, 30_000)

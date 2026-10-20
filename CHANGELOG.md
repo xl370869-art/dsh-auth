@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.1-dsh.1
+
+- Adapt native browser admission to DSH 0.2.1-rc.2 while retaining native denials.
+- Coordinate runtime/profile activation, verification, rollback and interrupted recovery with managed authentication.
+- Preserve legacy 0.2.3 deployment templates and configuration during rollback.
+- Distribute this fork as a GitHub prerelease and frozen runtime artifact; no upstream npm publication.
+
 ## v0.3.0
 
 Changes since [v0.2.3](https://github.com/hxy91819/dsh-auth/compare/v0.2.3...v0.3.0).

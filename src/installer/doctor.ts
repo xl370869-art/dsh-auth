@@ -46,8 +46,8 @@ function managedFileDiagnostics(host: InstallerHost, state: InstallState): Diagn
   const expectedFiles = new Map<string, string>([
     [state.paths.environmentFile, renderEnvironmentFile(state.request, state.paths, state.profilePackageVersion)],
     [state.paths.systemdDropInFile, renderSystemdDropIn(state.paths)],
-    [state.paths.caddyfile, renderCaddyfile(state.request, true, state.paths.caddyStateDirectory)],
-    [state.paths.caddyUnitFile, renderCaddyUnit(state.request, state.paths)],
+    [state.paths.caddyfile, renderCaddyfile(state.request, true, state.paths.caddyStateDirectory, state.profilePackageVersion)],
+    [state.paths.caddyUnitFile, renderCaddyUnit(state.request, state.paths, state.profilePackageVersion)],
   ])
   for (const [path, expected] of expectedFiles) {
     if (host.regularFile(path) && host.readFile(path) !== expected) {

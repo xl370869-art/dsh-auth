@@ -1,12 +1,12 @@
 import { join } from 'node:path'
 import { computePackageIdentity, resolveCliPackageIdentity, type PackageIdentity } from './build-identity.js'
-import { CADDY_VERSION, resolveCaddyPackage, type CaddyPackage } from './caddy.js'
+import { CADDY_VERSION, renderCaddyfile, renderCaddyUnit, resolveCaddyPackage, type CaddyPackage } from './caddy.js'
 import { renderEnvironmentFile, serializeInstallState } from './config-files.js'
 import { buildDoctorPlan, DEFAULT_STATE_FILE } from './doctor.js'
 import { InstallerError } from './errors.js'
 import { dshEnvironment, profileCommand, runChecked, systemctlPath } from './executor.js'
 import { readInstallState } from './plan.js'
-import { offlinePluginAddFlags, profileBundleRoot } from './profile-package.js'
+import { profilePluginArgs, profileBundleRoot } from './profile-package.js'
 import { ExitCode, type Diagnostic, type InstallationPlan, type InstallState, type InstallerHost, type PlanAction } from './types.js'
 
 /** Crash journal for one in-flight upgrade transaction; persisted inside the ownership record. */
@@ -17,6 +17,7 @@ export interface UpgradeJournal {
   readonly targetVersion: string
   readonly targetBuildIdentity: string
   readonly phase: 'bundle' | 'caddy' | 'quiescing' | 'services'
+  readonly coordinatedRuntime?: true
 }
 
 type UpgradableState = InstallState & { readonly upgrade?: UpgradeJournal | undefined }
@@ -31,6 +32,20 @@ export interface UpgradeContext {
   readonly target: PackageIdentity
   readonly targetSpec: string
   readonly recovering: boolean
+  readonly coordinatedRuntime?: boolean
+}
+
+/** Protocol supported by trusted runtime coordinators; older bundles must not be used. */
+export const RUNTIME_UPGRADE_PROTOCOL = 1
+
+/** Trusted embedding installer participant; operations must be idempotent for journal recovery. */
+export interface RuntimeUpgradeParticipant {
+  /** Activate the prepared runtime and migrate its plugins while DSH is stopped. */
+  activate(): void
+  /** Restore the prior runtime and profile before reinstalling the recorded auth bundle. */
+  restore(): void
+  /** Verify the running runtime before the authentication transaction commits. */
+  verify(): void
 }
 
 interface VersionParts {
@@ -98,6 +113,7 @@ function readUpgradeState(host: InstallerHost): UpgradableState | undefined {
   if (
     typeof record.fromVersion !== 'string' || typeof record.fromSpec !== 'string' || typeof record.fromBuildIdentity !== 'string'
     || typeof record.targetVersion !== 'string' || typeof record.targetBuildIdentity !== 'string'
+    || (record.coordinatedRuntime !== undefined && record.coordinatedRuntime !== true)
     || (phase !== 'bundle' && phase !== 'caddy' && phase !== 'quiescing' && phase !== 'services')
   ) {
     throw new InstallerError('upgrade journal is invalid', ExitCode.conflict, [{
@@ -115,7 +131,7 @@ function readUpgradeState(host: InstallerHost): UpgradableState | undefined {
  * installation with recorded bundle facts, and a strictly newer target that
  * is exactly this trusted CLI's build.
  */
-export function prepareUpgrade(host: InstallerHost, options: { readonly packageSpec?: string }): { readonly plan: InstallationPlan; readonly context?: UpgradeContext } {
+export function prepareUpgrade(host: InstallerHost, options: { readonly packageSpec?: string; readonly coordinatedRuntime?: boolean }): { readonly plan: InstallationPlan; readonly context?: UpgradeContext } {
   const state = readUpgradeState(host)
   if (state === undefined) {
     return { plan: upgradeBlocked([{ code: 'INSTALLATION_NOT_FOUND', severity: 'error', message: 'No managed installation exists.', remediation: 'Run dsh-auth setup first; upgrade only maintains an existing v2 installation.' }]) }
@@ -140,7 +156,9 @@ export function prepareUpgrade(host: InstallerHost, options: { readonly packageS
       remediation: 'Uninstall and rerun setup so the record captures the bundle build identity, then upgrade.',
     }])
   }
-  if (compareVersions(target.version, state.profilePackageVersion, 'target version') <= 0) {
+  const sameBuildRuntimeUpgrade = options.coordinatedRuntime === true
+    && target.version === state.profilePackageVersion && target.buildIdentity === state.profilePackageBuildIdentity
+  if (compareVersions(target.version, state.profilePackageVersion, 'target version') <= 0 && !sameBuildRuntimeUpgrade) {
     throw new InstallerError('upgrade requires a strictly newer target version', ExitCode.conflict, [{
       code: 'UPGRADE_VERSION_NOT_HIGHER',
       severity: 'error',
@@ -160,7 +178,7 @@ export function prepareUpgrade(host: InstallerHost, options: { readonly packageS
   ]
   return {
     plan: { schemaVersion: 2, operation: 'upgrade', mode: 'system', status: 'ready', actions, diagnostics: [] },
-    context: { state, target, targetSpec, recovering },
+    context: { state, target, targetSpec, recovering, coordinatedRuntime: options.coordinatedRuntime === true },
   }
 }
 
@@ -184,7 +202,7 @@ function bundleIdentity(host: InstallerHost, state: UpgradableState): { readonly
 }
 
 function pluginAddArgs(state: UpgradableState, spec: string): readonly string[] {
-  return ['plugin', '--profile', state.request.profile, 'add', ...offlinePluginAddFlags(spec), spec]
+  return profilePluginArgs(state.request.profile, 'add', spec)
 }
 
 function replaceManagedBinary(host: InstallerHost, source: CaddyPackage, managedPath: string): void {
@@ -195,16 +213,23 @@ function replaceManagedBinary(host: InstallerHost, source: CaddyPackage, managed
   host.renameFile(staged, managedPath)
 }
 
-function replaceEnvironment(host: InstallerHost, state: UpgradableState, version: string): void {
+function replaceConfiguration(host: InstallerHost, state: UpgradableState, version: string): void {
   host.replaceFile(state.paths.environmentFile, renderEnvironmentFile(state.request, state.paths, version), 0o640)
   // replaceFile uses a fresh root-owned inode; restore the service-group owner
   // required for the DSH unit to read its EnvironmentFile and for doctor to stay healthy.
   host.chown(state.paths.environmentFile, 0, state.dshGid)
   host.chmod(state.paths.environmentFile, 0o640)
+  host.replaceFile(state.paths.caddyfile, renderCaddyfile(state.request, true, state.paths.caddyStateDirectory, version), 0o644)
+  host.chown(state.paths.caddyfile, 0, 0)
+  host.chmod(state.paths.caddyfile, 0o644)
+  host.replaceFile(state.paths.caddyUnitFile, renderCaddyUnit(state.request, state.paths, version), 0o644)
+  host.chown(state.paths.caddyUnitFile, 0, 0)
+  host.chmod(state.paths.caddyUnitFile, 0o644)
 }
 
 function restartServices(host: InstallerHost, state: UpgradableState): void {
   const systemctl = systemctlPath(host)
+  runChecked(host, { executable: systemctl, args: ['daemon-reload'] }, 'UPGRADE_DAEMON_RELOAD_FAILED')
   runChecked(host, { executable: systemctl, args: ['restart', state.dshService] }, 'UPGRADE_DSH_RESTART_FAILED')
   runChecked(host, { executable: systemctl, args: ['restart', 'dsh-auth-caddy.service'] }, 'UPGRADE_CADDY_RESTART_FAILED')
 }
@@ -264,12 +289,16 @@ function restoreBundle(host: InstallerHost, state: UpgradableState, spec: string
 }
 
 /** Restore the recorded pre-upgrade bundle, Caddy binary, environment, record, and services. */
-function rollbackUpgrade(host: InstallerHost, state: UpgradableState): UpgradableState {
+function rollbackUpgrade(host: InstallerHost, state: UpgradableState, runtime?: RuntimeUpgradeParticipant): UpgradableState {
   const journal = state.upgrade
   if (journal === undefined) throw new InstallerError('rollback requires an upgrade journal', ExitCode.execution)
-  if (journal.phase === 'services') {
+  if (journal.coordinatedRuntime && runtime === undefined) {
+    throw new InstallerError('runtime upgrade recovery requires the original coordinating installer', ExitCode.conflict)
+  }
+  if (journal.phase === 'services' || journal.coordinatedRuntime) {
     runChecked(host, { executable: systemctlPath(host), args: ['stop', state.dshService] }, 'UPGRADE_ROLLBACK_DSH_STOP_FAILED')
   }
+  if (journal.coordinatedRuntime) runtime?.restore()
   const restoredCaddy = restoreBundle(host, state, journal.fromSpec, journal.fromBuildIdentity)
   let caddyFields: Partial<UpgradableState> = {}
   if (journal.phase !== 'bundle') {
@@ -278,7 +307,9 @@ function rollbackUpgrade(host: InstallerHost, state: UpgradableState): Upgradabl
   }
   if (journal.phase === 'quiescing' || journal.phase === 'services') {
     if (journal.phase === 'services') restoreAuthState(host, state)
-    replaceEnvironment(host, state, journal.fromVersion)
+    replaceConfiguration(host, state, journal.fromVersion)
+  }
+  if (journal.phase === 'quiescing' || journal.phase === 'services' || journal.coordinatedRuntime) {
     restartServices(host, state)
   }
   const restored = updateState(host, state, {
@@ -293,10 +324,25 @@ function rollbackUpgrade(host: InstallerHost, state: UpgradableState): Upgradabl
   return restored
 }
 
+/** Recover only an interrupted coordinated transaction, using its exact trusted CLI build. */
+export function recoverCoordinatedUpgrade(host: InstallerHost, runtime: RuntimeUpgradeParticipant): void {
+  const state = readUpgradeState(host)
+  if (state?.upgrade?.coordinatedRuntime !== true) {
+    throw new InstallerError('no interrupted coordinated runtime upgrade exists', ExitCode.conflict)
+  }
+  if (resolveCliPackageIdentity(host).buildIdentity !== state.upgrade.targetBuildIdentity) {
+    throw new InstallerError('recovery requires the recorded target CLI build', ExitCode.conflict)
+  }
+  rollbackUpgrade(host, state, runtime)
+}
+
 /** Execute one validated upgrade transaction with full rollback on failure. */
-export function executeUpgrade(host: InstallerHost, context: UpgradeContext): void {
+export function executeUpgrade(host: InstallerHost, context: UpgradeContext, runtime?: RuntimeUpgradeParticipant): void {
+  if (context.coordinatedRuntime && runtime === undefined) {
+    throw new InstallerError('coordinated runtime upgrade requires a runtime participant', ExitCode.conflict)
+  }
   let state = context.state
-  if (context.recovering) state = rollbackUpgrade(host, state)
+  if (context.recovering) state = rollbackUpgrade(host, state, runtime)
   const journal: UpgradeJournal = {
     fromVersion: state.profilePackageVersion ?? '',
     fromSpec: state.profilePackageSpec ?? '',
@@ -304,9 +350,14 @@ export function executeUpgrade(host: InstallerHost, context: UpgradeContext): vo
     targetVersion: context.target.version,
     targetBuildIdentity: context.target.buildIdentity,
     phase: 'bundle',
+    ...(runtime === undefined ? {} : { coordinatedRuntime: true }),
   }
   state = updateState(host, state, { status: 'installing', upgrade: journal })
   try {
+    if (runtime !== undefined) {
+      runChecked(host, { executable: systemctlPath(host), args: ['stop', state.dshService] }, 'UPGRADE_RUNTIME_QUIESCE_FAILED')
+      runtime.activate()
+    }
     runChecked(host, profileCommand(host, state, pluginAddArgs(state, context.targetSpec)), 'UPGRADE_BUNDLE_INSTALL_FAILED', dshEnvironment(state))
     const installed = bundleIdentity(host, state)
     if (installed.identity.version !== context.target.version || installed.identity.buildIdentity !== context.target.buildIdentity) {
@@ -321,12 +372,13 @@ export function executeUpgrade(host: InstallerHost, context: UpgradeContext): vo
     const caddy = resolveCaddyPackage(host)
     replaceManagedBinary(host, caddy, state.paths.caddyBinary)
     state = updateState(host, state, { upgrade: { ...journal, phase: 'quiescing' } })
-    replaceEnvironment(host, state, context.target.version)
+    replaceConfiguration(host, state, context.target.version)
     runChecked(host, { executable: state.paths.caddyBinary, args: ['validate', '--config', state.paths.caddyfile] }, 'UPGRADE_CADDY_VALIDATE_FAILED')
     runChecked(host, { executable: systemctlPath(host), args: ['stop', state.dshService] }, 'UPGRADE_DSH_QUIESCE_FAILED')
     snapshotAuthState(host, state)
     state = updateState(host, state, { upgrade: { ...journal, phase: 'services' } })
     restartServices(host, state)
+    runtime?.verify()
     state = updateState(host, state, {
       status: 'installed',
       upgrade: undefined,
@@ -339,7 +391,7 @@ export function executeUpgrade(host: InstallerHost, context: UpgradeContext): vo
     })
   } catch (error) {
     try {
-      rollbackUpgrade(host, readUpgradeState(host) ?? state)
+      rollbackUpgrade(host, readUpgradeState(host) ?? state, runtime)
     } catch (rollbackError) {
       throw new InstallerError('upgrade failed and rollback also failed', ExitCode.execution, [
         { code: 'UPGRADE_FAILED', severity: 'error', message: error instanceof Error ? error.message : String(error) },

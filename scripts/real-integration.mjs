@@ -492,7 +492,7 @@ async function waitForBrowser(evaluate, expression, label) {
   }
 }
 
-const AUTHENTICATED_SPA = 'location.pathname === "/" && Array.from(document.querySelectorAll("button")).some(button => { const text = button.textContent?.trim(); return text === "Settings" || text === "设置" })'
+const AUTHENTICATED_SPA = 'location.pathname === "/" && Array.from(document.querySelectorAll("button")).some(button => { const text = button.textContent?.trim(); return text === "Settings" || text === "设置" || ["Account menu", "账号菜单"].includes(button.getAttribute("aria-label")) })'
 
 async function openHarnessSettings(browser, label) {
   await waitForBrowser(browser.evaluate, AUTHENTICATED_SPA, label)
@@ -503,8 +503,12 @@ async function openHarnessSettings(browser, label) {
     const buttons = Array.from(document.querySelectorAll('button'))
     const dismiss = buttons.find(button => ['Continue', '继续', 'Configure later', '稍后配置'].includes(button.textContent?.trim() ?? ''))
     if (dismiss !== undefined) { dismiss.click(); return false }
-    const settings = buttons.find(button => ['Settings', '设置'].includes(button.textContent?.trim() ?? ''))
-    settings?.click()
+    const choices = Array.from(document.querySelectorAll('button, [role=menuitem]'))
+    const settings = choices.find(button => ['Settings', '设置'].includes(button.textContent?.trim() ?? '') || ['Settings', '设置'].includes(button.getAttribute('aria-label')))
+    if (settings !== undefined) { settings.click(); return false }
+    // DSH 0.2.1 moves Settings into the public account menu.
+    const account = buttons.find(button => ['Account menu', '账号菜单'].includes(button.getAttribute('aria-label')))
+    if (account?.getAttribute('aria-expanded') !== 'true') account?.click()
     return false
   })()`, `${label} Settings account rows`)
 }

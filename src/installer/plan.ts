@@ -1,5 +1,5 @@
 import { resolveCliPackageIdentity } from './build-identity.js'
-import { inspectProfilePackage, offlinePluginAddFlags } from './profile-package.js'
+import { inspectProfilePackage, profilePluginArgs } from './profile-package.js'
 import { dirname, isAbsolute, join } from 'node:path'
 import { InstallerError } from './errors.js'
 import { persistentRequest, renderEnvironmentFile, renderSystemdDropIn, requestFingerprint } from './config-files.js'
@@ -286,10 +286,10 @@ function verifyInstalledState(host: InstallerHost, state: InstallState, request:
   const system = !output
   const expectedFiles = new Map<string, string>([
     [state.paths.environmentFile, renderEnvironmentFile(request, state.paths, state.profilePackageVersion)],
-    [state.paths.caddyfile, renderCaddyfile(request, system, state.paths.caddyStateDirectory)],
+    [state.paths.caddyfile, renderCaddyfile(request, system, state.paths.caddyStateDirectory, state.profilePackageVersion)],
     ...(output ? [] : [
       [state.paths.systemdDropInFile, renderSystemdDropIn(state.paths)] as const,
-      [state.paths.caddyUnitFile, renderCaddyUnit(request, state.paths)] as const,
+      [state.paths.caddyUnitFile, renderCaddyUnit(request, state.paths, state.profilePackageVersion)] as const,
     ]),
   ])
   for (const [path, expected] of expectedFiles) {
@@ -386,7 +386,7 @@ function profileInstallAction(
       description: `Install the pinned dsh-auth bundle into profile ${request.profile}.`,
       command: {
         executable: service.dshExecutable,
-        args: ['plugin', '--profile', request.profile, 'add', ...offlinePluginAddFlags(request.packageSource), request.packageSource],
+        args: profilePluginArgs(request.profile, 'add', request.packageSource),
       },
     },
   }

@@ -180,7 +180,7 @@ function validateConfigs(caddy, root, ports, certificate, key) {
     adminBootstrap: 'login-token', loginTokenEnabled: true,
     upstream: `127.0.0.1:${String(ports.upstream)}`, listenAddress: '127.0.0.1',
     httpPort: ports.behind, httpsPort: 443,
-  }, true)
+  }, true, join(root, 'behind-state'))
   const formatted = checked(caddy, ['fmt', '-'], { input: proxied })
   if (formatted !== proxied) throw new Error('rendered behind-TLS-proxy Caddy config is not formatted')
   const path = join(root, 'Caddyfile.behind-tls-proxy')

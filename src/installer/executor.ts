@@ -7,7 +7,7 @@ import { renderCaddyfile, renderCaddyUnit, resolveCaddyPackage } from './caddy.j
 import { renderEnvironmentFile, renderSystemdDropIn, serializeInstallState } from './config-files.js'
 import { InstallerError } from './errors.js'
 import { bootstrapStatePath, initialInstallState, readInstallState, validateStatePaths } from './plan.js'
-import { profileBundleRoot, profilePackageStateFields } from './profile-package.js'
+import { profileBundleRoot, profilePackageStateFields, profilePluginArgs } from './profile-package.js'
 import { ExitCode, type CommandSpec, type InstallState, type InstallerHost, type ManagedPaths, type PreparedSetup } from './types.js'
 
 /** Secret reader invoked only after planning and confirmation complete. */
@@ -173,7 +173,7 @@ function rollbackProfilePackage(host: InstallerHost, state: InstallState): void 
   } catch {
     throw new InstallerError('cannot reconcile the DSH profile during rollback', ExitCode.conflict)
   }
-  const args = ['plugin', '--profile', state.request.profile, 'remove', 'dsh-auth']
+  const args = profilePluginArgs(state.request.profile, 'remove', 'dsh-auth')
   runChecked(host, profileCommand(host, state, args), 'PROFILE_PACKAGE_ROLLBACK_FAILED', dshEnvironment(state))
 }
 

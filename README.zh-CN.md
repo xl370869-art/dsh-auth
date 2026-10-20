@@ -1,5 +1,7 @@
 # dsh-auth
 
+> 本 fork 通过 GitHub Releases 和冻结 runtime 归档分发 DSH 0.2.1-rc.2 适配版本 `0.3.1-dsh.1`，未发布到原作者的 npm 包。镜像中的受管安装请通过运行时联合升级，不要独立替换 profile 中的认证插件。下文通用安装指南用于独立部署。
+
 [English](README.md) | 简体中文
 
 [![npm version](https://img.shields.io/npm/v/dsh-auth.svg)](https://www.npmjs.com/package/dsh-auth)
@@ -24,14 +26,14 @@ sudo dsh-auth setup
 `npm install -g dsh-auth` 安装当前稳定版 CLI，安装器会把同一版本钉死到所选 DSH profile。若需按供应链策略做受控生产发布，请安装已批准的精确版本：
 
 ```sh
-sudo npm install -g dsh-auth@0.3.0
+sudo npm install -g https://github.com/xl370869-art/dsh-auth/releases/download/v0.3.1-dsh.1/dsh-auth-0.3.1-dsh.1.tgz
 ```
 
 交互式安装器会询问精确的 DSH 服务、管理员初始化方式、HTTPS 主机名和 TLS 模式；展示一份不含密钥的计划；只有在你输入精确确认词后才会改动系统。它会把钉死的包安装进所选 DSH profile，复制同包内经过校验和验证的 Caddy 二进制，写入权限受限的认证状态，并启用独立的 `dsh-auth-caddy.service`。它从不存储明文密码，安装时也从不下载 Caddy。
 
 `dsh plugin --profile web add dsh-auth`（或本地 tarball）只会把插件加入 Web profile。缺少全部核心环境变量时，插件保持休眠，Harness 使用自身认证启动，不注册 dsh-auth 路由和设置。只提供部分配置时会报告插件激活错误，不启用 dsh-auth；Harness 进程可能继续运行并保留原生认证。启用认证仍需执行全局 CLI 的 `sudo dsh-auth setup`。
 
-常规部署需要 Linux x64 或 ARM64、systemd、Node.js 24.7 或更新版本，以及 DSH Web 0.2.0-rc.2。自动 TLS 是 HTTPS 默认值。手动 TLS 需要已有的证书和私钥。`--server-name` 同时接受 DNS 名称和公网字面量 IP 地址。
+常规部署需要 Linux x64 或 ARM64、systemd、Node.js 24.7 或更新版本，以及 DSH Web 0.2.1-rc.2。自动 TLS 是 HTTPS 默认值。手动 TLS 需要已有的证书和私钥。`--server-name` 同时接受 DNS 名称和公网字面量 IP 地址。
 
 独立管理员安装器显式设置 `DSH_AUTH_NATIVE_AUTH_BRIDGE=true`，让有效且可吊销的 dsh-auth 会话获得 Harness 原生 operator 权限，同时保留原生 Host 与 Origin 校验。插件本身默认关闭此选项。Chatroom 等多用户网关必须保持关闭并自行验证资源权限。吊销 dsh-auth 会话不会吊销另外签发的 Harness 原生凭据。
 

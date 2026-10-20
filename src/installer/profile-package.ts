@@ -34,6 +34,12 @@ export function offlinePluginAddFlags(spec: string): readonly string[] {
   return isOfflinePluginSpec(spec) ? ['--offline', '--config.auto-install-peers=false'] : []
 }
 
+/** Build compatible argv for both legacy profiles and current pnpm workspace profiles. */
+export function profilePluginArgs(profile: string, verb: 'add' | 'remove', spec: string): readonly string[] {
+  return ['plugin', '--profile', profile, verb, '--config.ignore-workspace-root-check=true',
+    ...(verb === 'add' ? offlinePluginAddFlags(spec) : []), spec]
+}
+
 /**
  * Inspect the profile manifest and the bundle it actually resolves. A
  * pre-installed bundle is adoptable only when its package name, version,

@@ -79,13 +79,16 @@ function templateFile(name: string): string {
 }
 
 /** Render the managed Caddyfile for HTTPS or trusted-network HTTP. */
-export function renderCaddyfile(request: SetupRequest, system: boolean, caddyStateDirectory = SYSTEM_CADDY_STATE): string {
+export function renderCaddyfile(request: SetupRequest, system: boolean, caddyStateDirectory = SYSTEM_CADDY_STATE, installedVersion?: string): string {
   const accessLogFile = caddyPath(join(caddyStateDirectory, 'access.log'), 'Caddy access log')
+  // Immutable templates from the released image baseline; never accept arbitrary drift.
+  const legacy = installedVersion === '0.2.3'
+  const prefix = legacy ? 'legacy-0.2.3/' : ''
   if (request.mode === 'http') {
     const siteHost = request.listenAddress.includes(':') ? `[${request.listenAddress}]` : request.listenAddress
     const authority = `${siteHost}:${String(request.httpPort)}`
     const behindTlsProxy = request.behindTlsProxy === true
-    return fillTemplate(templateFile('dsh-auth.http.Caddyfile.template'), new Map([
+    return fillTemplate(templateFile(`${prefix}dsh-auth.http.Caddyfile.template`), new Map([
       ['{{SITE_HOST}}', siteHost],
       ['{{HTTP_PORT}}', String(request.httpPort)],
       ['{{LISTEN_ADDRESS}}', request.listenAddress],
@@ -104,8 +107,8 @@ export function renderCaddyfile(request: SetupRequest, system: boolean, caddySta
     ]))
   }
   const publicHost = hostname(request.serverName ?? '')
-  const authority = `${siteHost(publicHost)}:${String(request.httpsPort)}`
-  return fillTemplate(templateFile('dsh-auth.Caddyfile.template'), new Map([
+  const authority = `${legacy ? publicHost : siteHost(publicHost)}:${String(request.httpsPort)}`
+  return fillTemplate(templateFile(`${prefix}dsh-auth.Caddyfile.template`), new Map([
     ['{{PUBLIC_HOST}}', publicHost],
     ['{{PUBLIC_SITE_HOST}}', siteHost(publicHost)],
     ['{{HTTP_PORT}}', String(request.httpPort)],
@@ -113,13 +116,13 @@ export function renderCaddyfile(request: SetupRequest, system: boolean, caddySta
     ['{{LISTEN_ADDRESS}}', request.listenAddress],
     ['{{PUBLIC_AUTHORITY}}', authority],
     ['{{UPSTREAM}}', request.upstream],
-    ['{{TLS_DIRECTIVE}}', tlsDirective(request, system)],
+    ['{{TLS_DIRECTIVE}}', legacy && request.tls !== 'manual' ? '' : tlsDirective(request, system)],
     ['{{ACCESS_LOG_FILE}}', accessLogFile],
   ]))
 }
 
 /** Independent DynamicUser unit that never reuses a user Caddy or Nginx service. */
-export function renderCaddyUnit(request: SetupRequest, paths: ManagedPaths): string {
+export function renderCaddyUnit(request: SetupRequest, paths: ManagedPaths, installedVersion?: string): string {
   const credentials = request.tls === 'manual' && request.certificate !== undefined && request.certificateKey !== undefined
     ? `LoadCredential=${CREDENTIAL_CERT}:${request.certificate}\nLoadCredential=${CREDENTIAL_KEY}:${request.certificateKey}\n`
     : ''
@@ -141,10 +144,7 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 StateDirectory=dsh-auth-caddy
 RuntimeDirectory=dsh-auth-caddy
-Environment=HOME=/var/lib/dsh-auth-caddy
-Environment=XDG_CONFIG_HOME=/var/lib/dsh-auth-caddy
-Environment=XDG_DATA_HOME=/var/lib/dsh-auth-caddy
-BindReadOnlyPaths=${paths.caddyfile}:/run/dsh-auth-caddy/Caddyfile
+${installedVersion === '0.2.3' ? '' : 'Environment=HOME=/var/lib/dsh-auth-caddy\nEnvironment=XDG_CONFIG_HOME=/var/lib/dsh-auth-caddy\nEnvironment=XDG_DATA_HOME=/var/lib/dsh-auth-caddy\n'}BindReadOnlyPaths=${paths.caddyfile}:/run/dsh-auth-caddy/Caddyfile
 ${credentials}ExecStartPre=${paths.caddyBinary} validate --config /run/dsh-auth-caddy/Caddyfile
 ExecStart=${paths.caddyBinary} run --config /run/dsh-auth-caddy/Caddyfile --adapter caddyfile
 ExecReload=${paths.caddyBinary} reload --config /run/dsh-auth-caddy/Caddyfile --adapter caddyfile

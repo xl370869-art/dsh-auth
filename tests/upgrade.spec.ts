@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { runCli } from '../src/cli.js'
-import { compareVersions } from '../src/installer/upgrade.js'
+import { compareVersions, executeUpgrade, prepareUpgrade, RUNTIME_UPGRADE_PROTOCOL, recoverCoordinatedUpgrade } from '../src/installer/upgrade.js'
 import type { UpgradeJournal } from '../src/installer/upgrade.js'
 import { FakeCliIo, FakeInstallerHost } from './installer-helpers.js'
 
@@ -334,4 +334,166 @@ describe('managed upgrade authentication-state rollback', () => {
     expect(stateOf(host)).toMatchObject({ status: 'installed', profilePackageVersion: PACKAGE_VERSION })
     await expect(runCli(['doctor', '--json'], new FakeCliIo(false), host)).resolves.toBe(0)
   }, 30_000)
+})
+
+
+describe('coordinated runtime upgrade', () => {
+  it('advertises the coordinator protocol explicitly', () => {
+    expect(RUNTIME_UPGRADE_PROTOCOL).toBe(1)
+  })
+  it('activates before installing auth and commits only after runtime verification', async () => {
+    const host = readyHost()
+    await setupInstalled(host)
+    host.promoteCliPackage(NEXT_VERSION)
+    const { context } = prepareUpgrade(host, {})
+    if (context === undefined) throw new Error('upgrade preflight unexpectedly blocked')
+    expect(context).toBeDefined()
+    let active = false
+    let verified = false
+    const previous = host.commandHandler
+    host.commandHandler = command => {
+      if (command.args.includes(`dsh-auth@${NEXT_VERSION}`)) expect(active).toBe(true)
+      return previous(command)
+    }
+    executeUpgrade(host, context, {
+      activate() {
+        expect(host.commands.at(-1)?.args).toEqual(['stop', 'dsh-web.service'])
+        active = true
+      },
+      restore() { throw new Error('unexpected restoration') },
+      verify() {
+        expect(stateOf(host).status).toBe('installing')
+        expect(host.commands.at(-1)?.args).toEqual(['restart', 'dsh-auth-caddy.service'])
+        verified = true
+      },
+    })
+    expect(verified).toBe(true)
+    expect(stateOf(host).status).toBe('installed')
+  })
+
+  it.each(['activation', 'verification'])('restores the old runtime before auth rollback after %s fails', async failure => {
+    const host = readyHost()
+    await setupInstalled(host)
+    const originalState = stateOf(host)
+    const originalAuth = host.readFileBytes('/var/lib/dsh-auth/auth-state.json')
+    host.promoteCliPackage(NEXT_VERSION)
+    const { context } = prepareUpgrade(host, {})
+    if (context === undefined) throw new Error('upgrade preflight unexpectedly blocked')
+    let restored = false
+    const previous = host.commandHandler
+    host.commandHandler = command => {
+      if (command.args.includes('add') && command.args.at(-1) === originalState.profilePackageSpec) {
+        expect(restored).toBe(true)
+      }
+      return previous(command)
+    }
+    expect(() => executeUpgrade(host, context, {
+      activate() { if (failure === 'activation') throw new Error('activation failed') },
+      restore() {
+        expect(host.commands.at(-1)?.args).toEqual(['stop', 'dsh-web.service'])
+        restored = true
+      },
+      verify() { throw new Error('verification failed') },
+    })).toThrow(`${failure} failed`)
+    expect(restored).toBe(true)
+    expect(stateOf(host).profilePackageVersion).toBe(PACKAGE_VERSION)
+    expect(stateOf(host).upgrade).toBeUndefined()
+    expect(host.readFileBytes('/var/lib/dsh-auth/auth-state.json')).toEqual(originalAuth)
+    expect(await runCli(['doctor', '--json'], new FakeCliIo(false), host)).toBe(0)
+  })
+
+  it('refuses uncoordinated recovery without mutating the interrupted journal', async () => {
+    const host = readyHost()
+    await setupInstalled(host)
+    host.promoteCliPackage(NEXT_VERSION)
+    const { context } = prepareUpgrade(host, {})
+    if (context === undefined) throw new Error('upgrade preflight unexpectedly blocked')
+    expect(() => executeUpgrade(host, context, {
+      activate() { throw new Error('activation interrupted') },
+      restore() { throw new Error('restoration interrupted') },
+      verify() { throw new Error('unexpected verification') },
+    })).toThrow('rollback also failed')
+    const interrupted = host.readFile(STATE_FILE)
+    const io = new FakeCliIo(false)
+    expect(await runCli([...UPGRADE_ARGS], io, host)).toBe(4)
+    expect(host.readFile(STATE_FILE)).toBe(interrupted)
+    expect(io.outputs.join('')).toContain('original coordinating installer')
+  })
+})
+
+
+describe('unchanged auth during a runtime upgrade', () => {
+  it('allows the identical build only with a coordinating runtime participant', async () => {
+    const host = readyHost()
+    await setupInstalled(host)
+    const { context } = prepareUpgrade(host, { coordinatedRuntime: true })
+    if (context === undefined) throw new Error('same build runtime preflight failed')
+    const before = host.readFile(STATE_FILE)
+    expect(() => executeUpgrade(host, context)).toThrow('requires a runtime participant')
+    expect(host.readFile(STATE_FILE)).toBe(before)
+    const phases: string[] = []
+    executeUpgrade(host, context, {
+      activate() { phases.push('activate') },
+      restore() { throw new Error('unexpected restoration') },
+      verify() { phases.push('verify') },
+    })
+    expect(phases).toEqual(['activate', 'verify'])
+    expect(stateOf(host).profilePackageVersion).toBe(PACKAGE_VERSION)
+    expect(await runCli(['doctor', '--json'], new FakeCliIo(false), host)).toBe(0)
+  })
+
+  it('rejects changed same-version builds and downgrades even with coordination', async () => {
+    for (const target of [PACKAGE_VERSION, '0.1.0']) {
+      const host = readyHost()
+      await setupInstalled(host)
+      const before = host.readFile(STATE_FILE)
+      host.promoteCliPackage(target)
+      expect(() => prepareUpgrade(host, { coordinatedRuntime: true })).toThrow('strictly newer')
+      expect(host.readFile(STATE_FILE)).toBe(before)
+    }
+  })
+})
+
+
+describe('coordinated recovery without retrying the upgrade', () => {
+  it('recovers with the recorded CLI build and never activates the target again', async () => {
+    const host = readyHost()
+    await setupInstalled(host)
+    host.promoteCliPackage(NEXT_VERSION)
+    const { context } = prepareUpgrade(host, { coordinatedRuntime: true })
+    if (context === undefined) throw new Error('preflight failed')
+    expect(() => executeUpgrade(host, context, {
+      activate() { throw new Error('interrupted target activation') },
+      restore() { throw new Error('restoration unavailable') },
+      verify() { throw new Error('unexpected verification') },
+    })).toThrow('rollback also failed')
+    const phases: string[] = []
+    recoverCoordinatedUpgrade(host, {
+      activate() { throw new Error('unexpected retry') },
+      restore() { phases.push('restore') },
+      verify() { throw new Error('unexpected verification') },
+    })
+    expect(phases).toEqual(['restore'])
+    expect(stateOf(host).profilePackageVersion).toBe(PACKAGE_VERSION)
+    expect(stateOf(host).upgrade).toBeUndefined()
+    expect(await runCli(['doctor', '--json'], new FakeCliIo(false), host)).toBe(0)
+  })
+
+  it('rejects a different CLI build before touching an interrupted transaction', async () => {
+    const host = readyHost()
+    await setupInstalled(host)
+    host.promoteCliPackage(NEXT_VERSION)
+    const { context } = prepareUpgrade(host, { coordinatedRuntime: true })
+    if (context === undefined) throw new Error('preflight failed')
+    const runtime = {
+      activate() { throw new Error('interrupted target activation') },
+      restore() { throw new Error('restoration unavailable') },
+      verify() { throw new Error('unexpected verification') },
+    }
+    expect(() => executeUpgrade(host, context, runtime)).toThrow('rollback also failed')
+    const before = host.readFile(STATE_FILE)
+    host.addFile('/usr/lib/node_modules/dsh-auth/lib/cli.js', 'changed CLI build')
+    expect(() => recoverCoordinatedUpgrade(host, runtime)).toThrow('recorded target CLI build')
+    expect(host.readFile(STATE_FILE)).toBe(before)
+  })
 })

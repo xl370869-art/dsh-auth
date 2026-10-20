@@ -1,6 +1,6 @@
 {
   "name": "dsh-auth",
-  "version": "0.3.0",
+  "version": "0.3.1-dsh.1",
   "description": "Caddy-fronted administrator authentication bundle for DeepSeek Harness",
   "type": "module",
   "main": "./lib/index.js",
@@ -25,11 +25,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hxy91819/dsh-auth.git"
+    "url": "git+https://github.com/xl370869-art/dsh-auth.git"
   },
-  "homepage": "https://github.com/hxy91819/dsh-auth#readme",
+  "homepage": "https://github.com/xl370869-art/dsh-auth#readme",
   "bugs": {
-    "url": "https://github.com/hxy91819/dsh-auth/issues"
+    "url": "https://github.com/xl370869-art/dsh-auth/issues"
   },
   "files": [
     "lib/**/*.js",
@@ -71,14 +71,14 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
-    "@deepseek-ai/dsh-client-locale": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-client-ui-settings": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-client-ui-settings-general": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-host-webserver": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-settings": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-locale": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-settings-general": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-settings": ">=0.2.1-rc.2 <0.3.0",
     "react": "^18.2.0",
-    "@deepseek-ai/dsh-client-connection": ">=0.2.0-rc.2 <0.3.0"
+    "@deepseek-ai/dsh-client-connection": ">=0.2.1-rc.2 <0.3.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -147,16 +147,15 @@
     }
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "~4.0.4",
-    "@deepseek-ai/dsh": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-layout": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings-general": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-host-webserver": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-invariants": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-settings": "0.2.0-rc.2",
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings-general": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-settings": "0.2.1-rc.2",
     "@eslint/js": "9.39.5",
     "@standard-schema/spec": "1.1.0",
     "@types/node": "24.13.3",
@@ -178,11 +177,11 @@
     "typescript-eslint": "8.67.0",
     "vitest": "4.1.11",
     "ws": "8.21.3",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-store": "0.2.0-rc.2",
-    "@deepseek-ai/schemastery": "~3.18.4",
-    "@deepseek-ai/dsh-package-manifest": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-connection": "0.2.0-rc.2"
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-store": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "~3.18.5",
+    "@deepseek-ai/dsh-package-manifest": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2"
   },
   "keywords": [
     "deepseek-harness",

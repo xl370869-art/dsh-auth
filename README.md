@@ -1,5 +1,7 @@
 # dsh-auth
 
+> This fork provides the DSH 0.2.1-rc.2 integration build `0.3.1-dsh.1` through GitHub Releases and frozen runtime archives. It is not published as the upstream npm package. For managed image upgrades, use the coordinated runtime upgrade; do not replace the profile bundle independently. The general setup guide below describes standalone deployments.
+
 English | [简体中文](README.zh-CN.md)
 
 [![npm version](https://img.shields.io/npm/v/dsh-auth.svg)](https://www.npmjs.com/package/dsh-auth)
@@ -24,7 +26,7 @@ sudo dsh-auth setup
 `npm install -g dsh-auth` installs the current stable CLI, and the installer pins that same version in the selected DSH profile. For controlled production rollout, install the exact version approved by your supply-chain policy:
 
 ```sh
-sudo npm install -g dsh-auth@0.3.0
+sudo npm install -g https://github.com/xl370869-art/dsh-auth/releases/download/v0.3.1-dsh.1/dsh-auth-0.3.1-dsh.1.tgz
 ```
 
 ### Plugin pre-install is not enabled authentication
@@ -35,7 +37,7 @@ When setup finds a pre-installed bundle whose package name, version, and build c
 
 The interactive installer asks for the exact DSH service, administrator initialization method, HTTPS hostname, and TLS mode; shows a secret-free plan; and changes the system only after you type the exact confirmation. It installs the pinned bundle into the selected DSH profile, copies a checksum-verified Caddy binary bundled in the same package, writes permission-restricted authentication state, and enables an independent `dsh-auth-caddy.service`. It never stores a plaintext password and never downloads Caddy at setup time.
 
-Normal deployment requires Linux x64 or ARM64, systemd, Node.js 24.7 or newer, and DSH Web 0.2.0-rc.2. Automatic TLS is the HTTPS default. Manual TLS requires an existing certificate and key. `--server-name` accepts either a DNS name or a public literal IP address.
+Normal deployment requires Linux x64 or ARM64, systemd, Node.js 24.7 or newer, and DSH Web 0.2.1-rc.2. Automatic TLS is the HTTPS default. Manual TLS requires an existing certificate and key. `--server-name` accepts either a DNS name or a public literal IP address.
 
 The standalone installer explicitly enables `DSH_AUTH_NATIVE_AUTH_BRIDGE=true`: a valid, revocable dsh-auth session can then act as the native Harness operator while native Host and Origin checks remain enforced. The plugin defaults this option to `false`. Multi-user gateways such as Chatroom must leave it disabled and enforce their own resource authorization. Revoking a dsh-auth session does not revoke separately issued native Harness credentials.
 
@@ -359,7 +361,7 @@ schema v1 ownership records, old Nginx flags, and old plugin identity fields are
 `upgrade` moves a healthy v2 installation to the build of the currently installed global CLI. Install the newer CLI first, then run:
 
 ```sh
-sudo npm install -g dsh-auth@0.3.0
+sudo npm install -g https://github.com/xl370869-art/dsh-auth/releases/download/v0.3.1-dsh.1/dsh-auth-0.3.1-dsh.1.tgz
 sudo dsh-auth upgrade
 ```
 
